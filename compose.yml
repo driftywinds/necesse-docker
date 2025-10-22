@@ -1,0 +1,26 @@
+version: '3.9'
+
+services:
+  necesse-server:
+    image: ghcr.io/driftywinds/necesse-docker/necesse-server:latest
+    container_name: necesse-server
+    stdin_open: true
+    tty: true
+    ports:
+      - "14159:14159/tcp"
+      - "14159:14159/udp"
+    volumes:
+      - ./necesse-worlds:/root/.config/Necesse
+    restart: unless-stopped
+    environment:
+      # Add any Java options here if needed
+      - JAVA_OPTS=-Xmx2G -Xms1G
+    # Uncomment below to limit resources
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '2'
+    #       memory: 4G
+    #     reservations:
+    #       cpus: '1'
+    #       memory: 2G
