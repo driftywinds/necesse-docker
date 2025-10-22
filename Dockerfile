@@ -25,11 +25,14 @@ RUN if [ -z "$SERVER_URL" ]; then \
     chmod +x Server.jar
 
 # Create volume mount point for world saves
-VOLUME ["/root/.config/Necesse"]
+VOLUME ["/root/.config/Necesse/saves/worlds"]
 
 # Expose both TCP and UDP ports
 EXPOSE 14159/tcp
 EXPOSE 14159/udp
 
-# Start the server with -nogui flag and interactive terminal
-CMD ["java", "-jar", "Server.jar", "-nogui"]
+# Set environment variable for server options (default fallback)
+ENV SERVER_OPTS="-nogui"
+
+# Start the server with environment-configurable parameters
+CMD ["sh", "-c", "java -jar Server.jar $SERVER_OPTS"]
