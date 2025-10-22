@@ -25,7 +25,7 @@ RUN if [ -z "$SERVER_URL" ]; then \
     chmod +x Server.jar
 
 # Create volume mount point for world saves
-VOLUME ["/root/.config/Necesse/saves/worlds"]
+VOLUME ["/root/.config/Necesse"]
 
 # Expose both TCP and UDP ports
 EXPOSE 14159/tcp
