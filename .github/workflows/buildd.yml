@@ -38,6 +38,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+
       - name: Prepare Docker tags
         id: tags
         run: |
@@ -62,6 +67,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
             SERVER_URL=${{ inputs.server_url }}
@@ -71,6 +77,7 @@ jobs:
         run: |
           echo "### Docker Image Built Successfully! 🚀" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Platforms:** \`linux/amd64, linux/arm64\`" >> $GITHUB_STEP_SUMMARY
           echo "**Tags:** \`${{ inputs.image_tags }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Server URL:** \`${{ inputs.server_url }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
