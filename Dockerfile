@@ -1,7 +1,9 @@
 FROM eclipse-temurin:17-jre-jammy
 
 # Install required packages
-RUN apk add --no-cache wget unzip
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends wget unzip && \
+    rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /necesse
@@ -23,7 +25,6 @@ RUN if [ -z "$SERVER_URL" ]; then \
     chmod +x Server.jar
 
 # Create volume mount point for world saves
-# The path will be /root/.config/Necesse/saves/worlds/ in the container
 VOLUME ["/root/.config/Necesse/saves/worlds"]
 
 # Expose both TCP and UDP ports
