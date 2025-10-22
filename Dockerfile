@@ -17,6 +17,9 @@ RUN if [ -z "$SERVER_URL" ]; then \
     wget -O server.zip "$SERVER_URL" && \
     unzip server.zip && \
     rm server.zip && \
+    # Move all files from the extracted subdirectory to the working directory
+    mv necesse-server-*/* . && \
+    rmdir necesse-server-* && \
     chmod +x Server.jar
 
 # Create volume mount point for world saves
