@@ -15,7 +15,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: necesse-server
+  IMAGE_NAME: driftywinds/necesse-server
 
 jobs:
   build-and-push:
