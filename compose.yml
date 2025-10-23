@@ -2,7 +2,7 @@ version: '3.9'
 
 services:
   necesse-server:
-    image: ghcr.io/driftywinds/necesse-docker/necesse-server:latest
+    image: ghcr.io/driftywinds/necesse-server:latest
     container_name: necesse-server
     stdin_open: true
     tty: true
