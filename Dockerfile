@@ -24,15 +24,20 @@ RUN if [ -z "$SERVER_URL" ]; then \
     rmdir necesse-server-* && \
     chmod +x Server.jar
 
-# Create volume mount point for world saves
-VOLUME ["/root/.config/Necesse/saves/worlds"]
+# Create the full directory structure with proper permissions
+RUN mkdir -p /root/.config/Necesse/saves/worlds && \
+    chmod -R 755 /root/.config/Necesse
+
+# Remove VOLUME declaration to avoid conflicts with bind mounts
+# VOLUME ["/root/.config/Necesse/saves/worlds"]
 
 # Expose both TCP and UDP ports
 EXPOSE 14159/tcp
 EXPOSE 14159/udp
 
-# Set environment variable for server options (default fallback)
+# Set environment variables for server options
 ENV SERVER_OPTS="-nogui"
+ENV JAVA_OPTS=""
 
 # Start the server with environment-configurable parameters
-CMD ["sh", "-c", "java -jar Server.jar $SERVER_OPTS"]
+CMD ["sh", "-c", "java $JAVA_OPTS -jar Server.jar $SERVER_OPTS"]
