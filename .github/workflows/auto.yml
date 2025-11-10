@@ -15,7 +15,7 @@ on:
 env:
   REGISTRY: ghcr.io
   # Change this to your desired image name
-  IMAGE_NAME: necesse-server
+  IMAGE_NAME: ${{ github.repository }}/necesse-server
 
 jobs:
   check-version:
@@ -23,6 +23,8 @@ jobs:
     outputs:
       should_build: ${{ steps.compare.outputs.should_build }}
       new_version: ${{ steps.fetch.outputs.version }}
+      full_version: ${{ steps.fetch.outputs.full_version }}
+      build_number: ${{ steps.fetch.outputs.build }}
       download_url: ${{ steps.fetch.outputs.download_url }}
     steps:
       - name: Checkout repository
@@ -70,7 +72,7 @@ jobs:
       - name: Compare versions
         id: compare
         run: |
-          NEW_VERSION="${{ steps.fetch.outputs.version }}"
+          NEW_VERSION="${{ steps.fetch.outputs.full_version }}"
           STORED_VERSION="${{ steps.stored.outputs.stored_version }}"
           FORCE_BUILD="${{ github.event.inputs.force_build }}"
           
@@ -113,6 +115,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=${{ needs.check-version.outputs.new_version }}
+            type=raw,value=${{ needs.check-version.outputs.full_version }}
             type=raw,value=latest
 
       - name: Create Dockerfile
@@ -168,24 +171,31 @@ jobs:
 
       - name: Update version file
         run: |
-          echo "${{ needs.check-version.outputs.new_version }}" > .necesse-version
+          echo "${{ needs.check-version.outputs.full_version }}" > .necesse-version
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .necesse-version
-          git commit -m "Update Necesse server version to ${{ needs.check-version.outputs.new_version }}"
+          git commit -m "Update Necesse server to v${{ needs.check-version.outputs.new_version }} (build ${{ needs.check-version.outputs.build_number }})"
           git push
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ needs.check-version.outputs.new_version }}
-          name: Necesse Server v${{ needs.check-version.outputs.new_version }}
+          tag_name: v${{ needs.check-version.outputs.full_version }}
+          name: Necesse Server v${{ needs.check-version.outputs.new_version }} (build ${{ needs.check-version.outputs.build_number }})
           body: |
-            Automated build of Necesse Dedicated Server v${{ needs.check-version.outputs.new_version }}
+            Automated build of Necesse Dedicated Server v${{ needs.check-version.outputs.new_version }} (build ${{ needs.check-version.outputs.build_number }})
             
-            **Docker Image:**
+            **Docker Images:**
             ```
+            # Pull by version
             docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.new_version }}
+            
+            # Pull by version + build
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.full_version }}
+            
+            # Pull latest
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ```
             
             **Run Command:**
@@ -194,7 +204,7 @@ jobs:
               -p 14159:14159/tcp \
               -p 14159:14159/udp \
               -v ./necesse-data:/root/.config/Necesse \
-              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.new_version }}
+              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.full_version }}
             ```
             
             **Source:** ${{ needs.check-version.outputs.download_url }}
