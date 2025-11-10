@@ -15,76 +15,106 @@ on:
 env:
   REGISTRY: ghcr.io
   # Change this to your desired image name
-  IMAGE_NAME: necesse-server
+  IMAGE_NAME: ${{ github.repository }}/necesse-server
+  STEAM_APP_ID: 1169370
 
 jobs:
   check-version:
     runs-on: ubuntu-latest
     outputs:
       should_build: ${{ steps.compare.outputs.should_build }}
-      new_version: ${{ steps.fetch.outputs.version }}
-      full_version: ${{ steps.fetch.outputs.full_version }}
-      build_number: ${{ steps.fetch.outputs.build }}
-      download_url: ${{ steps.fetch.outputs.download_url }}
+      buildid: ${{ steps.fetch.outputs.buildid }}
+      timeupdated: ${{ steps.fetch.outputs.timeupdated }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Fetch latest server version
+      - name: Install SteamCMD
+        run: |
+          # Add multiverse repo for steamcmd
+          sudo add-apt-repository multiverse
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          
+          # Accept Steam license
+          echo steam steam/question select "I AGREE" | sudo debconf-set-selections
+          echo steam steam/license note '' | sudo debconf-set-selections
+          
+          # Install steamcmd
+          sudo apt-get install -y steamcmd
+          
+          # Create symlink for easier access
+          sudo ln -s /usr/games/steamcmd /usr/local/bin/steamcmd
+
+      - name: Fetch latest server version from Steam
         id: fetch
         run: |
-          # Fetch the server download page
-          curl -s https://necessegame.com/server/ > server_page.html
+          # Query Steam for app info
+          # SteamCMD outputs to a file, so we'll capture it
+          steamcmd +login anonymous \
+            +app_info_update 1 \
+            +app_info_print ${{ env.STEAM_APP_ID }} \
+            +quit > steam_info.txt
           
-          # Extract the Linux server download URL
-          DOWNLOAD_URL=$(grep -oP 'href="\K[^"]*linux[^"]*\.zip' server_page.html | head -1)
+          # Extract build ID and time updated from the output
+          # The format in app_info is:
+          # "public"
+          # {
+          #   "buildid" "..."
+          #   "timeupdated" "..."
+          # }
           
-          if [ -z "$DOWNLOAD_URL" ]; then
-            echo "Failed to find Linux server download URL"
+          # Get the buildid from the public branch
+          BUILDID=$(grep -A 20 '"public"' steam_info.txt | grep -m 1 '"buildid"' | grep -oP '"\d+"' | tr -d '"')
+          
+          # Get the time updated
+          TIMEUPDATED=$(grep -A 20 '"public"' steam_info.txt | grep -m 1 '"timeupdated"' | grep -oP '"\d+"' | tr -d '"')
+          
+          if [ -z "$BUILDID" ]; then
+            echo "Failed to extract build ID from Steam"
+            cat steam_info.txt
             exit 1
           fi
           
-          # Make URL absolute if it's relative
-          if [[ ! "$DOWNLOAD_URL" =~ ^http ]]; then
-            DOWNLOAD_URL="https://necessegame.com${DOWNLOAD_URL}"
-          fi
+          # Convert timestamp to readable date
+          READABLE_DATE=$(date -d "@$TIMEUPDATED" '+%Y-%m-%d %H:%M:%S UTC' 2>/dev/null || echo "Unknown")
           
-          # Extract version from filename (e.g., necesse-server-0.21.24-linux.zip -> 0.21.24)
-          VERSION=$(echo "$DOWNLOAD_URL" | grep -oP 'necesse-server-\K[0-9.]+(?=-linux)')
+          echo "buildid=$BUILDID" >> $GITHUB_OUTPUT
+          echo "timeupdated=$TIMEUPDATED" >> $GITHUB_OUTPUT
+          echo "Found build ID: $BUILDID"
+          echo "Last updated: $READABLE_DATE"
           
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "download_url=$DOWNLOAD_URL" >> $GITHUB_OUTPUT
-          echo "Found version: $VERSION"
-          echo "Download URL: $DOWNLOAD_URL"
+          # Clean up
+          rm steam_info.txt
 
-      - name: Get stored version
+      - name: Get stored build ID
         id: stored
         run: |
-          if [ -f .necesse-version ]; then
-            STORED_VERSION=$(cat .necesse-version)
-            echo "stored_version=$STORED_VERSION" >> $GITHUB_OUTPUT
-            echo "Stored version: $STORED_VERSION"
+          if [ -f .necesse-buildid ]; then
+            STORED_BUILDID=$(cat .necesse-buildid)
+            echo "stored_buildid=$STORED_BUILDID" >> $GITHUB_OUTPUT
+            echo "Stored build ID: $STORED_BUILDID"
           else
-            echo "stored_version=" >> $GITHUB_OUTPUT
-            echo "No stored version found"
+            echo "stored_buildid=" >> $GITHUB_OUTPUT
+            echo "No stored build ID found"
           fi
 
       - name: Compare versions
         id: compare
         run: |
-          NEW_VERSION="${{ steps.fetch.outputs.full_version }}"
-          STORED_VERSION="${{ steps.stored.outputs.stored_version }}"
+          NEW_BUILDID="${{ steps.fetch.outputs.buildid }}"
+          STORED_BUILDID="${{ steps.stored.outputs.stored_buildid }}"
           FORCE_BUILD="${{ github.event.inputs.force_build }}"
           
           if [ "$FORCE_BUILD" = "true" ]; then
             echo "should_build=true" >> $GITHUB_OUTPUT
             echo "Force build requested"
-          elif [ -z "$STORED_VERSION" ] || [ "$NEW_VERSION" != "$STORED_VERSION" ]; then
+          elif [ -z "$STORED_BUILDID" ] || [ "$NEW_BUILDID" != "$STORED_BUILDID" ]; then
             echo "should_build=true" >> $GITHUB_OUTPUT
-            echo "New version detected or first run"
+            echo "New build detected or first run (Old: $STORED_BUILDID, New: $NEW_BUILDID)"
           else
             echo "should_build=false" >> $GITHUB_OUTPUT
-            echo "No new version available"
+            echo "No new build available"
           fi
 
   build-and-push:
@@ -114,45 +144,57 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=${{ needs.check-version.outputs.new_version }}
-            type=raw,value=${{ needs.check-version.outputs.full_version }}
+            type=raw,value=build-${{ needs.check-version.outputs.buildid }}
             type=raw,value=latest
 
       - name: Create Dockerfile
         run: |
           cat > Dockerfile << 'EOF'
+          FROM ubuntu:22.04 AS downloader
+
+          # Install SteamCMD dependencies
+          RUN dpkg --add-architecture i386 && \
+              apt-get update && \
+              apt-get install -y --no-install-recommends \
+                ca-certificates \
+                lib32gcc-s1 \
+                curl \
+                && rm -rf /var/lib/apt/lists/*
+
+          # Download and extract SteamCMD
+          WORKDIR /steamcmd
+          RUN curl -sqL "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz" | tar zxvf -
+
+          # Download Necesse server files
+          ARG STEAM_APP_ID=1169370
+          RUN /steamcmd/steamcmd.sh \
+              +force_install_dir /necesse-server \
+              +login anonymous \
+              +app_update ${STEAM_APP_ID} validate \
+              +quit
+
+          # Final stage with Java runtime
           FROM eclipse-temurin:17-jre-jammy
-          # Install required packages
-          RUN apt-get update && \
-              apt-get install -y --no-install-recommends wget unzip && \
-              rm -rf /var/lib/apt/lists/*
-          # Set working directory
+
+          # Copy server files from downloader stage
           WORKDIR /necesse
-          # Build argument for server download URL
-          ARG SERVER_URL
-          # Download and extract server files
-          RUN if [ -z "$SERVER_URL" ]; then \
-                  echo "ERROR: SERVER_URL build argument is required"; \
-                  exit 1; \
-              fi && \
-              wget -O server.zip "$SERVER_URL" && \
-              unzip server.zip && \
-              rm server.zip && \
-              # Move all files from the extracted subdirectory to the working directory
-              mv necesse-server-*/* . && \
-              rmdir necesse-server-* && \
-              chmod +x Server.jar
+          COPY --from=downloader /necesse-server /necesse
+
+          # Ensure Server.jar is executable
+          RUN chmod +x Server.jar
+
           # Create the full directory structure with proper permissions
           RUN mkdir -p /root/.config/Necesse/saves/worlds && \
               chmod -R 755 /root/.config/Necesse
-          # Remove VOLUME declaration to avoid conflicts with bind mounts
-          # VOLUME ["/root/.config/Necesse/saves/worlds"]
+
           # Expose both TCP and UDP ports
           EXPOSE 14159/tcp
           EXPOSE 14159/udp
+
           # Set environment variables for server options
           ENV SERVER_OPTS="-nogui"
           ENV JAVA_OPTS=""
+
           # Start the server with environment-configurable parameters
           CMD ["sh", "-c", "java $JAVA_OPTS -jar Server.jar $SERVER_OPTS"]
           EOF
@@ -165,34 +207,40 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            SERVER_URL=${{ needs.check-version.outputs.download_url }}
+            STEAM_APP_ID=${{ env.STEAM_APP_ID }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Update version file
+      - name: Update build ID file
         run: |
-          echo "${{ needs.check-version.outputs.full_version }}" > .necesse-version
+          echo "${{ needs.check-version.outputs.buildid }}" > .necesse-buildid
+          
+          # Convert timestamp to readable format for commit message
+          READABLE_DATE=$(date -d "@${{ needs.check-version.outputs.timeupdated }}" '+%Y-%m-%d' 2>/dev/null || echo "")
+          
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .necesse-version
-          git commit -m "Update Necesse server to v${{ needs.check-version.outputs.new_version }} (build ${{ needs.check-version.outputs.build_number }})"
+          git add .necesse-buildid
+          git commit -m "Update Necesse server to build ${{ needs.check-version.outputs.buildid }} ($READABLE_DATE)"
           git push
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ needs.check-version.outputs.full_version }}
-          name: Necesse Server v${{ needs.check-version.outputs.new_version }} (build ${{ needs.check-version.outputs.build_number }})
+          tag_name: build-${{ needs.check-version.outputs.buildid }}
+          name: Necesse Server Build ${{ needs.check-version.outputs.buildid }}
           body: |
-            Automated build of Necesse Dedicated Server v${{ needs.check-version.outputs.new_version }} (build ${{ needs.check-version.outputs.build_number }})
+            Automated build of Necesse Dedicated Server
+            
+            **Build Information:**
+            - Build ID: `${{ needs.check-version.outputs.buildid }}`
+            - Steam App ID: `${{ env.STEAM_APP_ID }}`
+            - Last Updated: `${{ needs.check-version.outputs.timeupdated }}`
             
             **Docker Images:**
-            ```
-            # Pull by version
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.new_version }}
-            
-            # Pull by version + build
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.full_version }}
+            ```bash
+            # Pull by build ID
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:build-${{ needs.check-version.outputs.buildid }}
             
             # Pull latest
             docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
@@ -201,13 +249,28 @@ jobs:
             **Run Command:**
             ```bash
             docker run -d \
+              --name necesse-server \
               -p 14159:14159/tcp \
               -p 14159:14159/udp \
               -v ./necesse-data:/root/.config/Necesse \
-              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.full_version }}
+              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:build-${{ needs.check-version.outputs.buildid }}
             ```
             
-            **Source:** ${{ needs.check-version.outputs.download_url }}
+            **Environment Variables:**
+            - `SERVER_OPTS`: Server options (default: `-nogui`)
+            - `JAVA_OPTS`: Java VM options (default: empty)
+            
+            **Example with custom settings:**
+            ```bash
+            docker run -d \
+              --name necesse-server \
+              -p 14159:14159/tcp \
+              -p 14159:14159/udp \
+              -e JAVA_OPTS="-Xmx2G -Xms1G" \
+              -e SERVER_OPTS="-nogui -world MyWorld" \
+              -v ./necesse-data:/root/.config/Necesse \
+              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ```
           draft: false
           prerelease: false
         env:
