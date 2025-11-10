@@ -157,14 +157,23 @@ jobs:
           cat > Dockerfile << 'EOF'
           FROM ubuntu:22.04 AS downloader
 
-          # Install SteamCMD dependencies
-          RUN dpkg --add-architecture i386 && \
-              apt-get update && \
-              apt-get install -y --no-install-recommends \
-                ca-certificates \
-                lib32gcc-s1 \
-                curl \
-                && rm -rf /var/lib/apt/lists/*
+          # Install dependencies based on architecture
+          ARG TARGETARCH
+          RUN if [ "$TARGETARCH" = "amd64" ]; then \
+                dpkg --add-architecture i386 && \
+                apt-get update && \
+                apt-get install -y --no-install-recommends \
+                  ca-certificates \
+                  lib32gcc-s1 \
+                  curl \
+                  && rm -rf /var/lib/apt/lists/*; \
+              else \
+                apt-get update && \
+                apt-get install -y --no-install-recommends \
+                  ca-certificates \
+                  curl \
+                  && rm -rf /var/lib/apt/lists/*; \
+              fi
 
           # Download and extract SteamCMD
           WORKDIR /steamcmd
