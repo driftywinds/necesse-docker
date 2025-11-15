@@ -28,16 +28,47 @@ RUN if [ -z "$SERVER_URL" ]; then \
 RUN mkdir -p /root/.config/Necesse/saves/worlds && \
     chmod -R 755 /root/.config/Necesse
 
-# Remove VOLUME declaration to avoid conflicts with bind mounts
-# VOLUME ["/root/.config/Necesse/saves/worlds"]
+# Create entrypoint script
+RUN cat > /entrypoint.sh << 'ENTRYPOINT_EOF'
+#!/bin/bash
+set -e
+
+# Default values
+: ${JAVA_OPTS:=""}
+: ${SERVER_OPTS:="-nogui"}
+
+# Build the full Java command
+JAVA_CMD="java"
+
+# Add JAVA_OPTS if provided
+if [ -n "$JAVA_OPTS" ]; then
+    JAVA_CMD="$JAVA_CMD $JAVA_OPTS"
+fi
+
+# Add jar file
+JAVA_CMD="$JAVA_CMD -jar Server.jar"
+
+# Add SERVER_OPTS if provided
+if [ -n "$SERVER_OPTS" ]; then
+    JAVA_CMD="$JAVA_CMD $SERVER_OPTS"
+fi
+
+echo "Starting Necesse server with command: $JAVA_CMD"
+echo "Memory limits: $(echo $JAVA_OPTS | grep -o '\-Xm[sx][^ ]*' || echo 'none specified')"
+
+# Execute the command
+exec $JAVA_CMD
+ENTRYPOINT_EOF
+
+RUN chmod +x /entrypoint.sh
 
 # Expose both TCP and UDP ports
 EXPOSE 14159/tcp
 EXPOSE 14159/udp
 
-# Set environment variables for server options
+# Set default environment variables
 ENV SERVER_OPTS="-nogui"
-ENV JAVA_OPTS=""
+ENV JAVA_OPTS="-Xmx2G -Xms1G"
 
-# Start the server with environment-configurable parameters
-CMD ["sh", "-c", "java $JAVA_OPTS -jar Server.jar $SERVER_OPTS"]
+# Use the entrypoint script
+ENTRYPOINT ["/entrypoint.sh"]
