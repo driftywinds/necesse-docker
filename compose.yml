@@ -13,8 +13,9 @@ services:
       - ./data:/root/.config/Necesse
     restart: unless-stopped
     environment:
-      #- JAVA_OPTS=-Xmx2G -Xms1G
+      - JAVA_OPTS=-Xmx2G -Xms1G
       - SERVER_OPTS="-nogui -world <YOUR WORLD NAME HERE> -slots 20 -owner <YOUR CHARACTER NAME HERE> -pausewhenempty 1 -password <YOUR PASSWORD HERE>"
+
     # Uncomment below to limit resources
     # deploy:
     #   resources:
